@@ -20,7 +20,9 @@ from telethon.utils import pack_bot_file_id
 from pyUltroid.dB.filter_db import add_filter, get_filter, list_filter, rem_filter
 from pyUltroid.fns.tools import create_tl_btn, format_btn, get_msg_button
 
-from . import events, get_string, mediainfo, udB, ultroid_bot, ultroid_cmd
+from telethon import events
+from telethon.sync import TelegramClient
+
 from ._inline import something
 
 # Function to retrieve messages with a space delay until condition command is used
@@ -33,15 +35,33 @@ async def retrieve_messages_with_space(chat_id, max_messages=7, condition_comman
         messages.append(msg)
         await asyncio.sleep(space_delay)
 
-        # Check for the condition command ("/remfilter" in this case)
-        if condition_command and condition_command.lower() in msg.text.lower():
+        # Check if the message has text before accessing it
+        if msg.text and condition_command and condition_command.lower() in msg.text.lower():
             break  # Exit the loop when the condition command is found
 
         count += 1
 
     return messages
 
-@ultroid_cmd(pattern="addfilter( (.*)|$)")
+@ultroid_bot.on(events.NewMessage)
+async def filter_func(e):
+    if isinstance(e.sender, User) and e.sender.bot:
+        return
+    xx = (e.text).lower()
+    chat = e.chat_id
+    if x := get_filter(chat):
+        for c in x:
+            pat = r"( |^|[^\w])" + re.escape(c) + r"( |$|[^\w])"
+            if re.search(pat, xx):
+                if k := x.get(c):
+                    msg = k["msg"]
+                    media = k["media"]
+                    if k.get("button"):
+                        btn = create_tl_btn(k["button"])
+                        return await something(e, msg, media, btn)
+                    await e.reply(msg, file=media)
+
+@ultroid_bot.on(events.NewMessage(pattern=r"addfilter( (.*)|$)"))
 async def af(e):
     wrd = (e.pattern_match.group(1).strip()).lower()
 
@@ -59,7 +79,7 @@ async def af(e):
                 m = f"https://graph.org{variable[0]}"
             elif wut == "video":
                 if wt.media.document.size > 8 * 1000 * 1000:
-                    return await e.eor(get_string("com_4"), time=5)
+                    return await e.reply("Video size is too large.", time=5)
                 dl = await wt.download_media()
                 variable = uf(dl)
                 os.remove(dl)
@@ -79,43 +99,23 @@ async def af(e):
                 txt, btn = get_msg_button(wt.text)
             add_filter(e.chat_id, wrd, txt, None, btn)
 
-    await e.eor(get_string("flr_4").format(wrd))
+    await e.reply(get_string("flr_4").format(wrd))
     ultroid_bot.add_handler(filter_func, events.NewMessage())
 
-@ultroid_cmd(pattern="remfilter( (.*)|$)")
+@ultroid_bot.on(events.NewMessage(pattern=r"remfilter( (.*)|$)"))
 async def rf(e):
     wrd = (e.pattern_match.group(1).strip()).lower()
     chat = e.chat_id
     if not wrd:
-        return await e.eor(get_string("flr_3"))
+        return await e.reply(get_string("flr_3"))
     rem_filter(int(chat), wrd)
-    await e.eor(get_string("flr_5").format(wrd))
+    await e.reply(get_string("flr_5").format(wrd))
 
-@ultroid_cmd(pattern="listfilter$")
+@ultroid_bot.on(events.NewMessage(pattern=r"listfilter$"))
 async def lsnote(e):
     if x := list_filter(e.chat_id):
         sd = "Filters Found In This Chats Are\n\n"
-        return await e.eor(sd + x)
-    await e.eor(get_string("flr_6"))
+        return await e.reply(sd + x)
+    await e.reply(get_string("flr_6"))
 
-async def filter_func(e):
-    if isinstance(e.sender, User) and e.sender.bot:
-        return
-    xx = (e.text).lower()
-    chat = e.chat_id
-    if x := get_filter(chat):
-        for c in x:
-            pat = r"( |^|[^\w])" + re.escape(c) + r"( |$|[^\w])"
-            if re.search(pat, xx):
-                if k := x.get(c):
-                    msg = k["msg"]
-                    media = k["media"]
-                    if k.get("button"):
-                        btn = create_tl_btn(k["button"])
-                        return await something(e, msg, media, btn)
-                    await e.reply(msg, file=media)
-
-# Check for existing filters and add filter_func handler if needed
-if udB.get_key("FILTERS"):
-    ultroid_bot.add_handler(filter_func, events.NewMessage())
-                
+ultroid_bot.run_until_disconnected()
